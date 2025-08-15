@@ -1,0 +1,4 @@
+gpt_venv/
+conversations.json
+__pycache__/
+*.pyc
