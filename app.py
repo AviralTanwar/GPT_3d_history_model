@@ -1,105 +1,74 @@
-import streamlit as st
-import json
-import networkx as nx
-import plotly.graph_objects as go
+import streamlit as st                      # For building the interactive web UI of the 3D ChatGPT history model
+import plotly.graph_objects as go           # For rendering the 3D visualization and interactive charts
+import networkx as nx                       # For creating and managing the graph/network structure of chat history
 
-# --- UI Title ---
-st.title("🧠 ChatGPT History: 3D Node Graph")
+# -------------------------------------------------------------------------------------------------------------------
+from data_loader import load_conversations, get_title_text_map
+from graph_builder import build_semantic_graph
+# -------------------------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------------------------
 
-# --- File Upload ---
-uploaded_file = st.file_uploader("Upload your ChatGPT 'conversations.json'", type="json")
-if not uploaded_file:
-    st.info("Please upload your exported ChatGPT conversations.json file.")
-    st.stop()
+# -----------------------------
+# Sidebar: How-to + Controls
+# ----------------------------
+st.sidebar.title("📜 How to export your ChatGPT data")
+st.sidebar.markdown("""
+1. In **ChatGPT**, click your name → **Settings** → **Data Controls**  
+2. Click **Export data** → **Export**  
+3. You'll receive an email from OpenAI → **Download** the `.zip`  
+4. **Extract** the zip → locate `**conversations.json**`  
+5. **Upload** that file below and wait for the graph to build!!!
+""")
 
-# --- Load JSON ---
-data = json.load(uploaded_file)
+# Streamlit app title
+st.title("ChatGPT Conversation Graph (Semantic Links)")
 
-# --- Create Graph ---
-G = nx.DiGraph()
+# File upload
+uploaded_file = st.file_uploader("Upload ChatGPT JSON", type=["json"])
 
-for conv in data:
-    messages = conv.get("mapping", {})
-    last_node = None
+if uploaded_file is not None:
+    # Load & process data
+    conversations = load_conversations(uploaded_file)
+    title_text_map = get_title_text_map(conversations)
 
-for key, msg in messages.items():
-    message = msg.get("message")
-    if not message:
-        continue
+    # Build graph
+    G = build_semantic_graph(title_text_map, similarity_threshold=0.5)
 
-    # Extract content parts safely
-    parts = []
-    if isinstance(message.get("content"), dict):
-        parts = message["content"].get("parts", [])
+    # Position nodes
+    pos = nx.spring_layout(G, k=0.5, iterations=50)
 
-    if parts:
-        first_part = parts[0]
-        if isinstance(first_part, str):
-            content = first_part[:50]
-        else:
-            content = str(first_part)[:50]
-    else:
-        content = ""
+    # Edges
+    edge_x, edge_y = [], []
+    for edge in G.edges():
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
+        edge_x.extend([x0, x1, None])
+        edge_y.extend([y0, y1, None])
 
-    role = message.get("author", {}).get("role", "unknown")
-    label = f"[{role}] {content}"
+    # Nodes
+    node_x, node_y, node_text = [], [], []
+    for node in G.nodes():
+        x, y = pos[node]
+        node_x.append(x)
+        node_y.append(y)
+        node_text.append(G.nodes[node]["label"])
 
-    G.add_node(key, label=label, role=role)
+    # Plot
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=edge_x, y=edge_y,
+        line=dict(width=0.5, color="#888"),
+        hoverinfo='none',
+        mode='lines'
+    ))
+    fig.add_trace(go.Scatter(
+        x=node_x, y=node_y,
+        mode='markers+text',
+        text=node_text,
+        textposition="top center",
+        hoverinfo='text',
+        marker=dict(size=10, color='lightblue', line_width=2)
+    ))
 
-    if last_node:
-        G.add_edge(last_node, key)
-
-    last_node = key
-
-
-# --- 3D Layout ---
-pos = nx.spring_layout(G, dim=3, seed=42)
-
-x_nodes = [pos[n][0] for n in G.nodes()]
-y_nodes = [pos[n][1] for n in G.nodes()]
-z_nodes = [pos[n][2] for n in G.nodes()]
-
-edge_x, edge_y, edge_z = [], [], []
-
-for edge in G.edges():
-    x0, y0, z0 = pos[edge[0]]
-    x1, y1, z1 = pos[edge[1]]
-    edge_x += [x0, x1, None]
-    edge_y += [y0, y1, None]
-    edge_z += [z0, z1, None]
-
-# --- Plotly 3D Graph ---
-fig = go.Figure()
-
-# Draw edges
-fig.add_trace(go.Scatter3d(
-    x=edge_x, y=edge_y, z=edge_z,
-    mode='lines',
-    line=dict(color='gray', width=1),
-    hoverinfo='none'
-))
-
-# Draw nodes
-fig.add_trace(go.Scatter3d(
-    x=x_nodes, y=y_nodes, z=z_nodes,
-    mode='markers+text',
-    marker=dict(
-        size=5,
-        color=['blue' if G.nodes[n]['role'] == 'user' else 'green' for n in G.nodes()],
-    ),
-    text=[G.nodes[n]['label'] for n in G.nodes()],
-    hoverinfo='text'
-))
-
-fig.update_layout(
-    margin=dict(l=0, r=0, t=0, b=0),
-    showlegend=False,
-    scene=dict(
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-        zaxis=dict(visible=False),
-    )
-)
-
-# --- Show in Streamlit ---
-st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig)
