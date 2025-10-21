@@ -1,23 +1,38 @@
-import networkx as nx
-from sentence_transformers import SentenceTransformer, util
+import plotly.graph_objects as go
+from sklearn.manifold import TSNE
+from sentence_transformers import SentenceTransformer
+import numpy as np
 
-def build_semantic_graph(title_text_map, similarity_threshold=0.5):
-    """Builds a semantic similarity graph from title->text mapping."""
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-    titles = list(title_text_map.keys())
-    embeddings = model.encode(list(title_text_map.values()), convert_to_tensor=True)
+def build_topic_graph(conversations):
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    titles = list(conversations.keys())
+    texts = list(conversations.values())
 
-    G = nx.Graph()
+    embeddings = model.encode(texts)
+    reduced = TSNE(n_components=2, random_state=42).fit_transform(embeddings)
 
-    # Add nodes
-    for i, title in enumerate(titles):
-        G.add_node(i, label=title)
+    fig = go.Figure()
 
-    # Add edges based on similarity
-    for i in range(len(titles)):
-        for j in range(i + 1, len(titles)):
-            sim = util.cos_sim(embeddings[i], embeddings[j]).item()
-            if sim > similarity_threshold:
-                G.add_edge(i, j, weight=sim)
+    fig.add_trace(go.Scatter(
+        x=reduced[:,0],
+        y=reduced[:,1],
+        mode='markers+text',
+        text=titles,
+        textposition='top center',
+        marker=dict(
+            size=8,
+            color='#00ff99',  # neon green
+            line=dict(width=1, color='#00ffaa'),
+        ),
+        hovertemplate='%{text}<extra></extra>'
+    ))
 
-    return G
+    fig.update_layout(
+        paper_bgcolor="#0a0f1a",
+        plot_bgcolor="#0a0f1a",
+        font=dict(color="#e2e8f0"),
+        showlegend=False,
+        margin=dict(l=0, r=0, t=0, b=0)
+    )
+
+    return fig
